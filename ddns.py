@@ -1,4 +1,4 @@
-import requests, json, time, yaml, datetime, random
+import requests, json, time, yaml, datetime, random, sys
 
 
 class Ddns():
@@ -219,6 +219,6 @@ class Hetzner():
         return resp['record']['id']
 
 while True:
-    d = Ddns("config.yml")
+    d = Ddns(sys.path[0] + "/config.yml")
     time.sleep(60*10)
 
