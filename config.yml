@@ -1,0 +1,9 @@
+jobs:
+  - provider: hetzner
+    api_key: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    names:
+      - "subdomain1"
+      - "@"
+      - "*.sub"
+    save_path: "data.json"
+    zone: "domain.tld"
