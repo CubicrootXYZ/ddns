@@ -1,4 +1,13 @@
-import requests, json, time, yaml, datetime, random, sys
+import socket
+
+import requests_wrapper as requests
+
+import json
+import time
+import yaml
+import datetime
+import random
+import sys
 
 
 class Ddns():
@@ -20,9 +29,11 @@ class Ddns():
 
     def run(self):
         for job in self.config['jobs']:
-
             if job['provider'] == "hetzner":
                 provider = Hetzner()
+            else:
+                print(f"[ERROR] Unknown provider {job['provider']}")
+                continue
 
             required = provider.required_config()
 
@@ -33,25 +44,30 @@ class Ddns():
                     config[r] = job[r]
                 else:
                     print(f"Missing setting in job: {r}")
-                    return False
+                    continue
 
             provider.set_config(config)
 
-            ip = self.get_ip()
+            ipV = socket.AF_INET  # Default v4
+            if 'type' in config and config['type'] == 'AAAA':
+                ipV = socket.AF_INET6
+
+            ip = self.get_ip(ipVersion=ipV)
 
             if not ip:
-                print("[ERROR] Not able to fetch your IP. Exiting.")
-                return False
+                print(
+                    f"[ERROR] Not able to fetch your IP ({config['type']}). Exiting.")
+                continue
 
-            if provider.update_dns(ip):
-                return True
-            else:
-                print("[ERROR] DNS Update failed.")
-                return False
+            if not provider.update_dns(ip):
+                print(
+                    f"[ERROR] DNS Update failed for job {job['zone']} / {config['type']}.")
+                continue
 
-    def get_ip(self):
+    def get_ip(self, ipVersion=socket.AF_INET):
         try:
-            resp = requests.get(url="http://ip.stored.cc")
+            resp = requests.get(url="http://ip.stored.cc",
+                                family=ipVersion)
             return resp.content.decode('utf-8').replace(" ", "").replace("\n", "")
         except:
             return False
@@ -63,7 +79,7 @@ class Hetzner():
         self.config_set = False
 
     def required_config(self):
-        return ['api_key', 'names', 'save_path', 'zone']
+        return ['api_key', 'names', 'save_path', 'zone', 'type']
 
     def set_config(self, config):
         self.api_key = config['api_key']
@@ -71,6 +87,7 @@ class Hetzner():
         self.path = config['save_path']
         self.zone = config['zone']
         self.records = []
+        self.type = config['type']
         self.config_set = True
 
     def send_request(self, method, endpoint, data):
@@ -82,17 +99,20 @@ class Hetzner():
 
         try:
             if method == "GET":
-                resp = requests.get(url="https://dns.hetzner.com/api/v1/" + str(endpoint), headers=headers, data=json.dumps(data))
+                resp = requests.get(url="https://dns.hetzner.com/api/v1/" +
+                                    str(endpoint), headers=headers, data=json.dumps(data))
             elif method == "PUT":
-                resp = requests.put(url="https://dns.hetzner.com/api/v1/" + str(endpoint), headers=headers, data=json.dumps(data))
+                resp = requests.put(url="https://dns.hetzner.com/api/v1/" +
+                                    str(endpoint), headers=headers, data=json.dumps(data))
             else:
-                resp = requests.request(method, "https://dns.hetzner.com/api/v1/" + str(endpoint), headers=headers, data=json.dumps(data))
+                resp = requests.request(method, "https://dns.hetzner.com/api/v1/" + str(
+                    endpoint), headers=headers, data=json.dumps(data))
         except Exception as e:
             print(e)
             return False
 
-        #print(resp.status_code)
-        #print(resp.content)
+        # print(resp.status_code)
+        # print(resp.content)
 
         if resp.status_code != 200:
             return False
@@ -110,17 +130,19 @@ class Hetzner():
             if not zone_id:
                 print("[ERROR] Can not get Zone Id")
                 return False
-            self.data = {"records": {}, "zone": {'name': self.zone, 'id': zone_id, 'created': int(time.time())}}
+            self.data = {"records": {}, "zone": {
+                'name': self.zone, 'id': zone_id, 'created': int(time.time())}}
 
             if not self.save_data():
-                print(f"[ERROR] Could not save data file to {self.path}. Exiting.")
+                print(
+                    f"[ERROR] Could not save data file to {self.path}. Exiting.")
                 return False
 
         for name in self.names:
             if name in self.data['records'] and int(time.time()) - self.data['records'][name]['created'] < (21600 + random.randint(-300, 300)):
                 record = self.data['records'][name]
             else:
-                id = self.get_record_id(name, ip)
+                id = self.get_record_id(name, ip, self.type)
                 if not id:
                     print(f"[WARNING] Getting id of {name} failed")
                     continue
@@ -128,7 +150,7 @@ class Hetzner():
                 self.data['records'][name] = record
 
             if record['ip'] != ip:
-                if self.update_ip(name, record, ip):
+                if self.update_ip(name, record, ip, self.type):
                     self.data['records'][name]['ip'] = ip
                 else:
                     print(f"[WARNING] IP update for {name} failed")
@@ -168,7 +190,7 @@ class Hetzner():
 
         return False
 
-    def get_record_id(self, name, ip):
+    def get_record_id(self, name, ip, recordType):
         if len(self.records) < 1:
             data = {
                 "zone_id": self.data['zone']['id']
@@ -179,34 +201,34 @@ class Hetzner():
                 return False
 
         for r in self.records:
-            if r['type'] == 'A' and r['name'] == name:
+            if r['type'] == recordType and r['name'] == name:
                 return r['id']
 
-        id = self.create_record(name, ip)
+        id = self.create_record(name, ip, recordType)
 
         if not id:
             return False
 
         return id
 
-    def update_ip(self, name, record, ip):
+    def update_ip(self, name, record, ip, recordType):
         data = {
             "value": ip,
             "ttl": 300,
-            "type": "A",
+            "type": recordType,
             "name": name,
             "zone_id": self.data['zone']['id']
         }
-        
+
         if not self.send_request("PUT", "records/" + str(record['id']), data):
             return False
         return True
 
-    def create_record(self, name, ip):
+    def create_record(self, name, ip, recordType):
         data = {
             "value": ip,
             "ttl": 300,
-            "type": "A",
+            "type": recordType,
             "name": name,
             "zone_id": self.data['zone']['id']
         }
@@ -218,7 +240,7 @@ class Hetzner():
 
         return resp['record']['id']
 
+
 while True:
     d = Ddns(sys.path[0] + "/config.yml")
     time.sleep(60*10)
-

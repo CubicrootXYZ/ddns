@@ -1,0 +1,15 @@
+jobs:
+  - provider: hetzner
+    # Hetzner api key
+    api_key: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    # Subdomains to update the A or AAAA records from
+    names:
+      - "subdomain1"
+      - "@"
+      - "*.sub"
+    # Storage file used
+    save_path: "data.json"
+    # Root zone name (non canonical) - usually the domain
+    zone: "domain.tld"
+    # Record type to set, either A (IPv4) or AAAA (IPv6)
+    type: 'A'
