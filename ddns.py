@@ -32,7 +32,7 @@ class Ddns():
             if job['provider'] == "hetzner":
                 provider = Hetzner()
             else:
-                print(f"Unknown provider {job['provider']}")
+                print(f"[ERROR] Unknown provider {job['provider']}")
                 continue
 
             required = provider.required_config()
@@ -60,7 +60,8 @@ class Ddns():
                 continue
 
             if not provider.update_dns(ip):
-                print("[ERROR] DNS Update failed.")
+                print(
+                    f"[ERROR] DNS Update failed for job {job['zone']} / {config['type']}.")
                 continue
 
     def get_ip(self, ipVersion=socket.AF_INET):
