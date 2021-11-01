@@ -1,4 +1,13 @@
-import requests, json, time, yaml, datetime, random, sys
+import socket
+
+import requests_wrapper as requests
+
+import json
+import time
+import yaml
+import datetime
+import random
+import sys
 
 
 class Ddns():
@@ -63,7 +72,7 @@ class Hetzner():
         self.config_set = False
 
     def required_config(self):
-        return ['api_key', 'names', 'save_path', 'zone']
+        return ['api_key', 'names', 'save_path', 'zone', 'type']
 
     def set_config(self, config):
         self.api_key = config['api_key']
@@ -71,6 +80,7 @@ class Hetzner():
         self.path = config['save_path']
         self.zone = config['zone']
         self.records = []
+        self.type = config['type']
         self.config_set = True
 
     def send_request(self, method, endpoint, data):
@@ -82,17 +92,20 @@ class Hetzner():
 
         try:
             if method == "GET":
-                resp = requests.get(url="https://dns.hetzner.com/api/v1/" + str(endpoint), headers=headers, data=json.dumps(data))
+                resp = requests.get(url="https://dns.hetzner.com/api/v1/" +
+                                    str(endpoint), headers=headers, data=json.dumps(data))
             elif method == "PUT":
-                resp = requests.put(url="https://dns.hetzner.com/api/v1/" + str(endpoint), headers=headers, data=json.dumps(data))
+                resp = requests.put(url="https://dns.hetzner.com/api/v1/" +
+                                    str(endpoint), headers=headers, data=json.dumps(data))
             else:
-                resp = requests.request(method, "https://dns.hetzner.com/api/v1/" + str(endpoint), headers=headers, data=json.dumps(data))
+                resp = requests.request(method, "https://dns.hetzner.com/api/v1/" + str(
+                    endpoint), headers=headers, data=json.dumps(data))
         except Exception as e:
             print(e)
             return False
 
-        #print(resp.status_code)
-        #print(resp.content)
+        # print(resp.status_code)
+        # print(resp.content)
 
         if resp.status_code != 200:
             return False
@@ -110,17 +123,19 @@ class Hetzner():
             if not zone_id:
                 print("[ERROR] Can not get Zone Id")
                 return False
-            self.data = {"records": {}, "zone": {'name': self.zone, 'id': zone_id, 'created': int(time.time())}}
+            self.data = {"records": {}, "zone": {
+                'name': self.zone, 'id': zone_id, 'created': int(time.time())}}
 
             if not self.save_data():
-                print(f"[ERROR] Could not save data file to {self.path}. Exiting.")
+                print(
+                    f"[ERROR] Could not save data file to {self.path}. Exiting.")
                 return False
 
         for name in self.names:
             if name in self.data['records'] and int(time.time()) - self.data['records'][name]['created'] < (21600 + random.randint(-300, 300)):
                 record = self.data['records'][name]
             else:
-                id = self.get_record_id(name, ip)
+                id = self.get_record_id(name, ip, 'A')
                 if not id:
                     print(f"[WARNING] Getting id of {name} failed")
                     continue
@@ -168,7 +183,7 @@ class Hetzner():
 
         return False
 
-    def get_record_id(self, name, ip):
+    def get_record_id(self, name, ip, recordType):
         if len(self.records) < 1:
             data = {
                 "zone_id": self.data['zone']['id']
@@ -179,7 +194,7 @@ class Hetzner():
                 return False
 
         for r in self.records:
-            if r['type'] == 'A' and r['name'] == name:
+            if r['type'] == recordType and r['name'] == name:
                 return r['id']
 
         id = self.create_record(name, ip)
@@ -197,7 +212,7 @@ class Hetzner():
             "name": name,
             "zone_id": self.data['zone']['id']
         }
-        
+
         if not self.send_request("PUT", "records/" + str(record['id']), data):
             return False
         return True
@@ -218,7 +233,7 @@ class Hetzner():
 
         return resp['record']['id']
 
+
 while True:
     d = Ddns(sys.path[0] + "/config.yml")
     time.sleep(60*10)
-

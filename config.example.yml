@@ -1,9 +1,14 @@
 jobs:
   - provider: hetzner
     api_key: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    # Subdomains to update
     names:
       - "subdomain1"
       - "@"
       - "*.sub"
+    # Storage file used
     save_path: "data.json"
+    # Root zone name (non canonical)
     zone: "domain.tld"
+    # Record type to set, either A or AAAA
+    type: 'A'
