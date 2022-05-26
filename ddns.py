@@ -66,7 +66,7 @@ class Ddns():
 
     def get_ip(self, ipVersion=socket.AF_INET):
         try:
-            resp = requests.get(url="http://ip.stored.cc",
+            resp = requests.get(url="http://icanhazip.com",
                                 family=ipVersion)
             return resp.content.decode('utf-8').replace(" ", "").replace("\n", "")
         except:
