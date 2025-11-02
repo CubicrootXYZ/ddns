@@ -1,6 +1,6 @@
 jobs:
-  - provider: hetzner
-    # Hetzner api key
+  - provider: hetzner_cloud
+    # Hetzner cloud api key
     api_key: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     # Subdomains to update the A or AAAA records from
     names:

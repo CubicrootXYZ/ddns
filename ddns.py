@@ -30,7 +30,10 @@ class Ddns():
     def run(self):
         for job in self.config['jobs']:
             if job['provider'] == "hetzner":
+                print("[DEBUG] hetzner provider will be deprecated in the future, use hetzner_cloud instead! See https://docs.hetzner.com/dns-console/dns/general/faq/")
                 provider = Hetzner()
+            elif job['provider'] == "hetzner_cloud":
+                provider = HetznerCloud()
             else:
                 print(f"[ERROR] Unknown provider {job['provider']}")
                 continue
@@ -72,9 +75,27 @@ class Ddns():
         except:
             return False
 
+class ProviderWithSaveFile():
+    path = None
 
-class Hetzner():
+    def load_data(self):
+        try:
+            self.data = json.load(open(self.path))
+        except Exception as e:
+            print(e)
+            return False
+        return True
 
+    def save_data(self):
+        with open(self.path, 'w') as stream:
+            try:
+                json.dump(self.data, stream)
+            except Exception as e:
+                print(e)
+                return False
+        return True
+
+class Hetzner(ProviderWithSaveFile):
     def __init__(self):
         self.config_set = False
 
@@ -110,9 +131,6 @@ class Hetzner():
         except Exception as e:
             print(e)
             return False
-
-        # print(resp.status_code)
-        # print(resp.content)
 
         if resp.status_code != 200:
             return False
@@ -159,23 +177,6 @@ class Hetzner():
             print(f"[ERROR] Could not save data file to {self.path}. Exiting.")
             return False
 
-        return True
-
-    def load_data(self):
-        try:
-            self.data = json.load(open(self.path))
-        except Exception as e:
-            print(e)
-            return False
-        return True
-
-    def save_data(self):
-        with open(self.path, 'w') as stream:
-            try:
-                json.dump(self.data, stream)
-            except Exception as e:
-                print(e)
-                return False
         return True
 
     def get_zone_id(self, zone):
@@ -240,6 +241,167 @@ class Hetzner():
 
         return resp['record']['id']
 
+class HetznerCloud(ProviderWithSaveFile):
+    def __init__(self):
+        self.config_set = False
+
+    def required_config(self):
+        return ['api_key', 'names', 'save_path', 'zone', 'type']
+
+    def set_config(self, config):
+        self.api_key = config['api_key']
+        self.names = config['names']
+        self.path = config['save_path']
+        self.zone = config['zone']
+        self.records = []
+        self.type = config['type']
+        self.config_set = True
+    
+    def send_request(self, method, endpoint, data):
+        print(f"[DEBUG] Sending request to API with {data} to {endpoint}")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + self.api_key,
+        }
+
+        try:
+            if method == "GET":
+                resp = requests.get(url="https://api.hetzner.cloud/v1/" +
+                                    str(endpoint), headers=headers, data=json.dumps(data))
+            elif method == "PUT":
+                resp = requests.put(url="https://api.hetzner.cloud/v1/" +
+                                    str(endpoint), headers=headers, data=json.dumps(data))
+            else:
+                resp = requests.request(method, "https://api.hetzner.cloud/v1/" + str(
+                    endpoint), headers=headers, data=json.dumps(data))
+        except Exception as e:
+            print(e)
+            return False
+
+        if resp.status_code not in [200, 201]:
+            return False
+        return json.loads(resp.content.decode('utf-8'))
+    
+    def get_zone_id(self, zone):
+        zones = self.send_request("GET", "zones", {})
+
+        if not zones:
+            return False
+
+        for z in zones['zones']:
+            if z['name'] == zone:
+                return z['id']
+
+        return False
+    
+    def create_record(self, name, ip, recordType):
+        data = {
+            "records": [
+                {
+                    "value": ip,
+                    "comment": f"DynDNS update from {datetime.datetime.now()}"
+                }
+            ],
+            "ttl": 300,
+            "type": recordType,
+            "name": name,
+            "labels": {
+                "dyndns": "true",
+            }
+        }
+
+        resp = self.send_request("POST", f"zones/{self.data['zone']['id']}/rrsets", data)
+
+        if not resp:
+            return False
+
+        print(resp['rrset']['id'])
+        return resp['rrset']['id']
+    
+    def update_ip(self, name, record, ip, recordType):
+        data = {
+            "records": [
+                {
+                    "value": ip,
+                    "comment": f"DynDNS update from {datetime.datetime.now()}"
+                }
+            ],
+        }
+
+        resp = self.send_request("POST", f"zones/{self.data['zone']['id']}/rrsets/{name}/{recordType}/actions/set_records", data)
+        if not resp:
+             return False
+        if not 'action' in resp or not 'id' in resp['action']:
+            return False
+        print(f"[DEBUG] updated rrset with action {resp['action']['id']}")
+        return True
+    
+    def get_record_id(self, name, ip, recordType):
+        if len(self.records) < 1:
+            self.records = []
+
+            page = 1
+            total_entries = 100
+            while page * 50 < total_entries:
+                resp = self.send_request("GET", f"zones/{self.data['zone']['id']}/rrsets?page=1&per_page=50", None)
+
+                if not resp['rrsets']:
+                    return False
+                
+                for rrset in resp['rrsets']:
+                    self.records.append(rrset)
+
+                page += 1
+                total_entries = resp['meta']['pagination']['total_entries']
+
+        for r in self.records:
+            if r['type'] == recordType and r['name'] == name:
+                return r['id']
+
+        return self.create_record(name, ip, recordType)
+
+    def update_dns(self, ip):
+        if not self.config_set:
+            print("[ERROR] No config set.")
+            return False
+
+        if not self.load_data():
+            print("[WARNING] Could not load data file. Creating new one.")
+
+            zone_id = self.get_zone_id(self.zone)
+            if not zone_id:
+                print("[ERROR] Can not get Zone Id")
+                return False
+            self.data = {"records": {}, "zone": {
+                'name': self.zone, 'id': zone_id, 'created': int(time.time())}}
+
+            if not self.save_data():
+                print(
+                    f"[ERROR] Could not save data file to {self.path}. Exiting.")
+                return False
+
+        for name in self.names:
+            if name in self.data['records'] and int(time.time()) - self.data['records'][name]['created'] < (21600 + random.randint(-300, 300)):
+                record = self.data['records'][name]
+            else:
+                id = self.get_record_id(name, ip, self.type)
+                if not id:
+                    print(f"[WARNING] Getting id of {name} failed")
+                    continue
+                record = {'id': id, 'created': int(time.time()), 'ip': ""}
+                self.data['records'][name] = record
+
+            if record['ip'] != ip:
+                if self.update_ip(name, record, ip, self.type):
+                    self.data['records'][name]['ip'] = ip
+                else:
+                    print(f"[WARNING] IP update for {name} failed")
+
+        if not self.save_data():
+            print(f"[ERROR] Could not save data file to {self.path}. Exiting.")
+            return False
+
+        return True
 
 while True:
     d = Ddns(sys.path[0] + "/config.yml")

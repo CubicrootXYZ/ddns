@@ -4,7 +4,8 @@ Simple dyn DNS provider.
 
 ## Supported DNS providers
 
-- Hetzner
+- Hetzner (`hetzner`) - Will be deprecated soon as DNS moved to Hetzner Cloud!
+- Hetzner Cloud (`hetzner_cloud`)
 
 ## Installation and Setup
 
